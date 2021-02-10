@@ -18,6 +18,6 @@ as the frontend to a mock "conference room reservation" system.
 Here's what the spreadsheet frontend looks like after "PJS" has reserved the "Earth" conference
 room from 10:00 AM to Noon:
 
-![Image of spreadsheet frontend](https://github.com/psterpe/VBARoomScheduler/tree/master/RoomRes1.png)
+![Image of spreadsheet frontend](https://github.com/psterpe/VBARoomScheduler/blob/master/RoomRes1.png)
 
 # This file still in progress...
