@@ -1,0 +1,146 @@
+' This is the VBA code from VBA_RoomRes.xlsm. It's extracted into a
+' file so you can look at it without having to open the .xlsm file
+' in Excel.
+
+Sub butRefreshRooms_Click()
+    Dim oHTTP As Object
+    Dim sURL As String
+    Dim resp As String
+    Dim lines() As String
+
+    Set oHTTP = CreateObject("MSXML2.ServerXMLHTTP")
+    sURL = Range("Server").Cells(1, 1).Value & "/list"
+
+    oHTTP.Open "GET", sURL, False
+    oHTTP.setRequestHeader "Content-type", "application/json"
+    oHTTP.Send
+
+    resp = oHTTP.ResponseText
+    Call RenderRooms(resp)
+
+End Sub
+
+Sub RenderRooms(roomlist As String)
+    Dim rooms() As String
+    Dim roomdetails() As String
+    Dim i, j As Integer
+    Dim x As String
+    Dim target As Range
+
+    rooms = Split(roomlist, ";")
+
+    ' Clear existing room rows. Range "TableHeading" is the column headings.
+    ' Starting at the row beneath, clear out rows until we hit a blank cell in the
+    ' first column.
+    Dim datarow, datacol, numcols As Integer
+    With Range("TableHeading")
+        datarow = .Row + 1
+        datacol = .Column
+        numcols = .Columns.Count
+    End With
+
+    Do Until IsEmpty(Cells(datarow, datacol))
+        Range(Cells(datarow, datacol), Cells(datarow, datacol + numcols - 1)).Clear
+        datarow = datarow + 1
+    Loop
+
+    ' Loop through the rooms data and put room details into worksheet
+    datarow = Range("TableHeading").Row + 1
+    For i = 1 To UBound(rooms)
+        roomdetails = Split(rooms(i - 1), "|")
+
+        Cells(datarow + i - 1, datacol) = roomdetails(0)      ' Key
+        Cells(datarow + i - 1, datacol + 1) = roomdetails(1)  ' Room name
+        Cells(datarow + i - 1, datacol + 2) = roomdetails(2)  ' Room capacity
+
+        ' The room's free/busy status is indicated by a string containing a 1 or a 0 for
+        ' each half hour time slot in the 8-hour day, e.g., 1100001100001100. Mark the
+        ' corresponding cells.
+        Dim bytes() As Byte
+        Dim takers() As String
+
+        bytes = StrConv(roomdetails(3), vbFromUnicode)
+        takers = Split(roomdetails(4), ":")
+
+        For j = 0 To UBound(bytes)
+            If bytes(j) = Asc("0") Then
+                Cells(datarow + i - 1, datacol + 3 + j).Clear
+            Else
+                With Cells(datarow + i - 1, datacol + 3 + j)
+                    .Value = takers(j)
+                    .HorizontalAlignment = xlCenter
+                    .Interior.Color = RGB(255, 255, 0)
+                End With
+            End If
+        Next
+    Next
+End Sub
+
+Sub butReserve_Click()
+    Dim c As Object
+    Dim i As Integer
+
+    ' First check that the selected cells are empty; not allowed to reserve over an existing reservation
+    For i = 1 To Selection.Columns.Count
+        Set c = Selection.Cells(1, i)
+        If Not IsEmpty(c) Then
+            MsgBox ("Cannot reserve time slots that are already taken.")
+            Exit Sub
+        End If
+    Next
+
+    ' If we get here, selected cells are empty, so we can reserve them. Need to construct a
+    ' schedule string with 0 in every time slot except the slots we want to reserve.
+    Dim schedule As Variant
+
+    schedule = Array("0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0")
+    Dim startcol, reslength As Integer
+
+    startcol = Selection.Cells(1, 1).Column - 6 - 1
+    reslength = Selection.Columns.Count
+
+    For i = startcol To startcol + reslength - 1
+        schedule(i) = "1"
+    Next
+
+    ' Find out who wants to reserve the room and set variable 'taker' to this value
+    Dim taker As String
+    taker = Range("Team").Cells(1, 1).Value
+
+    ' Get room key from the worksheet. Set 'key' variable to Cells(<r>, <c>).Value where
+    ' <r> must be replaced by an expression denoting which row the room's key is in, and
+    ' <c> must be replaced by an expression denoting which column the room's key is in.
+    Dim key As String
+    key = Cells(Selection.Row, Range("TableHeading").Column).Value
+
+    ' Call the web service to make the reservation
+    Dim oHTTP As Object
+    Dim sURL As String
+    Dim resp As String
+    Dim Body As String
+
+    Body = "{""roomkey"":""" & key & """,""schedule"":""" & Join(schedule, "") & """,""taker"":""" & taker & """}"
+    Set oHTTP = CreateObject("MSXML2.ServerXMLHTTP")
+    sURL = Range("Server").Cells(1, 1).Value & "/update"
+
+    oHTTP.Open "POST", sURL, False
+    oHTTP.setRequestHeader "Content-type", "application/json"
+    oHTTP.Send Body
+
+    resp = oHTTP.ResponseText
+
+    ' Variable 'resp' contains the response from the web service. The response is of the form prefix=value. The reservation
+    ' succeeded if the prefix is "roomkey". Otherwise, there was an error, and the value part of the response contains the
+    ' error message. Determine if the operation succeeded or if there was an error, and use MsgBox to display an
+    ' appropriate message.
+    Dim respParts() As String
+
+    respParts = Split(resp, "=")
+    If respParts(0) = "roomkey" Then
+        MsgBox ("Reservation succeeded")
+    Else
+        MsgBox ("An error occurred: " & respParts(1))
+    End If
+
+    Call butRefreshRooms_Click
+End Sub
